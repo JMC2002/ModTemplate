@@ -1,0 +1,11 @@
+﻿Key,Value
+覆盖存档,Écraser la sauvegarde
+取消操作,Annuler l’opération
+警告,Avertissement
+粘贴警告1,Si le slot cible {0} possède déjà une sauvegarde.
+粘贴警告2,L’opération de collage <color=red>écrasera définitivement</color> cette sauvegarde.
+粘贴警告3,Cette action est irréversible !
+复制,Copier
+取消,Annuler
+粘贴,Coller
+额外存档槽位数量,Nombre de slots de sauvegarde supplémentaires

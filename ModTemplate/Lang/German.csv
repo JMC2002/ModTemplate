@@ -1,0 +1,11 @@
+﻿Key,Value
+覆盖存档,Speicher überschreiben
+取消操作,Vorgang abbrechen
+警告,Warnung
+粘贴警告1,Wenn der Ziel-Slot {0} bereits einen Speicherstand hat.
+粘贴警告2,Der Einfügevorgang wird diesen Speicherstand <color=red>dauerhaft überschreiben</color>.
+粘贴警告3,Dieser Vorgang kann nicht rückgängig gemacht werden!
+复制,Kopieren
+取消,Abbrechen
+粘贴,Einfügen
+额外存档槽位数量,Anzahl zusätzlicher Speicher-Slots

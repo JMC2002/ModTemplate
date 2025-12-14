@@ -1,0 +1,11 @@
+Key,Value
+覆盖存档,Overwrite
+取消操作,Cancel
+警告,Warning
+粘贴警告1,If the target slot {0} already has a save.
+粘贴警告2,The paste operation will <color=red>permanently overwrite</color> that save.
+粘贴警告3,This action cannot be undone!
+复制,Copy
+取消,Cancel
+粘贴,Paste
+额外存档槽位数量,Extra Save Slot Count

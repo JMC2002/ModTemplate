@@ -1,0 +1,11 @@
+﻿Key,Value
+覆盖存档,Sobrescrever salvamento
+取消操作,Cancelar operação
+警告,Aviso
+粘贴警告1,Se o slot de destino {0} já tiver um salvamento
+粘贴警告2,A operação de colar irá <color=red>sobrescrever permanentemente</color> esse salvamento.
+粘贴警告3,Esta ação não pode ser desfeita!
+复制,Copy
+取消,Cancel
+粘贴,Paste
+额外存档槽位数量,Número de slots de salvamento extras
