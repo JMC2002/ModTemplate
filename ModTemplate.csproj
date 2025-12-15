@@ -41,6 +41,7 @@
     <Reference Include="$(DuckovManagedPath)\TeamSoda.*" />
     <Reference Include="$(DuckovManagedPath)\ItemStatsSystem.dll" />
     <Reference Include="$(DuckovManagedPath)\SodaLocalization.dll" />
+	  <!-- 我这里用我的本地依赖，如果是引用的创意工坊版本，用下面那个 -->
     <Reference Include="JmcModLib">
       <HintPath>$(DuckovModPath)JmcModLib\JmcModLib.dll</HintPath>
     </Reference>
