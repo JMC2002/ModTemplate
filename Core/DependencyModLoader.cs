@@ -6,12 +6,16 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
+// 项目地址：https://github.com/JMC2002/ModTemplate
 namespace ModTemplate.Core
 {
     // 建议设为 internal，防止不同 MOD 之间类名冲突
     // 如果你在多个 MOD 里用这份代码，请确保 namespace 不同，或者使用 internal
     public abstract class DependencyModLoader : Duckov.Modding.ModBehaviour
     {
+        // 当前DependencyModLoader代码版本号
+        public const string LOADER_VERSION = "1.0.0";
+
         private HashSet<string> _missingDependencies = default!;
         private bool _isLoaded = false;
 
@@ -33,6 +37,8 @@ namespace ModTemplate.Core
 
         protected override void OnAfterSetup()
         {
+            Debug.Log($"[{info.name}] Initializing DependencyLoader v{LOADER_VERSION} ...");
+
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
 
             var required = GetDependencies();
@@ -364,7 +370,7 @@ namespace ModTemplate.Core
 
             GUI.backgroundColor = originalColor;
         }
-        // --- 核心新增：轻量级本地化方法 ---
+        // --- 轻量级本地化方法 ---
         private string GetLocalizedText(string key)
         {
             SystemLanguage lang = LocalizationManager.CurrentLanguage;
