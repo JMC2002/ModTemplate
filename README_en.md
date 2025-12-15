@@ -79,6 +79,10 @@ About popup attributes:
 - The popup supports automatic localization.
 - It is not recommended to modify the code in `DependencyModLoader.cs` unless you clearly know what you are doing.
 
+![弹窗示例](Pic/依赖检测演示中.jpg)
+![弹窗示例](Pic/依赖检测演示日.jpg)
+![弹窗示例](Pic/依赖检测演示俄.jpg)
+
 ## 3. Communication and Feedback
 - This project is affiliated with [JmcModLib](https://github.com/JMC2002/JmcModLib) ([Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3613297900)). If you have any feedback or suggestions, in addition to opening an Issue in this project, you can also post them in the comments section of the Workshop page.
 - If you use the `DependencyModLoader` from this project, please let me know so that I can notify you of potential future updates.

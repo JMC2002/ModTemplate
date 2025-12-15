@@ -1,0 +1,21 @@
+﻿[h1]Order-Independent Dependency Template[/h1]
+[h2] 0. Notice [/h2]
+This is a [b] development [/b] project template. Subscribing to this MOD alone [b] will not have any effect [/b].
+
+[h2] 1. Introduction [/h2]
+This is a MOD template that allows prerequisite dependency MODs to no longer require a specific load order. It simultaneously detects declared prerequisite MODs and displays corresponding colored popups in the bottom-right corner. It also includes some related code structures.
+
+[h2] 2. Behavior [/h2]
+[list]
+    [*] When a declared dependency is detected: If the dependency is not enabled, a red popup will appear in the bottom-right corner prompting the user to enable it; if the dependency is enabled but the load order is incorrect, a yellow popup will appear in the bottom-right corner alerting the user that the dependency is enabled but the load order is wrong.
+    [*] Your MOD will load only after the dependent MODs have finished loading, preventing issues where the mod cannot be enabled due to incorrect prerequisite order.
+    [*] The popup will disappear after being clicked or when the configuration is corrected.
+[/list]
+
+[h2] 3. Usage [/h2]
+You do not need to, nor should you, directly depend on this MOD. You only need to copy the code structure and dependency detection code from this MOD into your own MOD project. For details, please see the Readme in the Github repository:
+[url=https://github.com/JMC2002/ModTemplate] Github Repository Link [/url]
+
+If you use this MOD, you are welcome to join the group for communication and feedback:
+[url=http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Kii1sz9bmNmgEgnmsasbKn6h3etgSoQR&authKey=Hni0nbFlbd%2BfDZ1GoklCdtHw4r79SuEsHvz9Pi4qs020w1f8D2DHD8EEnNN1OXo6&noverify=0&group_code=617674584] Click to join Group (617674584) [/url]
+[url=https://discord.gg/pnrpRmU2] Discord Link [/url]

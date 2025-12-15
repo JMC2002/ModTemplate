@@ -79,6 +79,10 @@ namespace ModTemplate.Core
 - 弹窗会自动本地化操作
 - 除非明确知道自己在干什么，否则不建议修改`DependencyModLoader.cs`的相关代码，不然可能会导致弹窗错乱
 
+![弹窗示例](Pic/依赖检测演示中.jpg)
+![弹窗示例](Pic/依赖检测演示日.jpg)
+![弹窗示例](Pic/依赖检测演示俄.jpg)
+
 ## 3. 交流与反馈
 - 本项目附属于[JmcModLib](https://github.com/JMC2002/JmcModLib)（[创意工坊](https://steamcommunity.com/sharedfiles/filedetails/?id=3613297900)），如有反馈或建议，除了在本项目Issue提出外，也可以在该项目创意工坊评论区提出
 - 如果使用了本项目的依赖`DependencyModLoader`，尽量告知我一声，以便对后续可能存在的更新进行提醒。

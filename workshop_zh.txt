@@ -1,0 +1,25 @@
+﻿[h1]前置依赖无序化模板[/h1]
+[h2] 0. 注意 [/h2]
+这是一个[b] 开发用的 [/b] 项目模板，单独订阅此MOD[b] 不会有任何效果 [/b]
+
+[h2] 1. 简介 [/h2]
+这是一个让前置依赖MOD不再强制要求有序加载的MOD模板，同时会检测声明的前置MOD并在右下角输出对应颜色的弹窗。此外还包含一些相关代码结构
+
+[h2] 2. 行为 [/h2]
+[list]
+    [*] 当检测到某个MOD声明了前置依赖MOD时，如果该前置依赖MOD未被启用，则会在右下角弹出一个红色弹窗，提示用户启用该前置依赖MOD；如果该前置依赖MOD已被启用但加载顺序不正确，则会在右下角弹出一个黄色弹窗，提示用户前置依赖MOD已启用但加载顺序不正确。
+    [*] 你的MOD会在所依赖的MOD加载完成后再加载，不会出现因为前置顺序不对勾选不上的情况
+    [*] 弹窗会在点击后或者勾选正确后消失
+[/list]
+
+[h2] 3. 使用方法 [/h2]
+你不需要也不应该直接依赖这个MOD，只需要将本MOD的代码结构和前置依赖检测代码复制到你的MOD项目中即可，不过你可以在引用此Mod页面以说明弹窗信息。详细请看Github仓库的Readme：
+[url=https://github.com/JMC2002/ModTemplate] Github仓库链接 [/url]
+
+[h2] 4. 注意 [/h2]
+
+
+
+如果有人使用此MOD，欢迎加入群交流反馈：
+[url=http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Kii1sz9bmNmgEgnmsasbKn6h3etgSoQR&authKey=Hni0nbFlbd%2BfDZ1GoklCdtHw4r79SuEsHvz9Pi4qs020w1f8D2DHD8EEnNN1OXo6&noverify=0&group_code=617674584] 点击入群（617674584） [/url]
+[url=https://discord.gg/pnrpRmU2] Discord链接 [/url]
