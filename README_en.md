@@ -77,8 +77,12 @@ After doing this, the following effects will be observed:
 About popup attributes:
 - The bottom-right popup can be closed by clicking. It will also disappear automatically after you check the prerequisite (if it doesn't disappear, you might need to uncheck and re-check the prerequisite).
 - The popup supports automatic localization.
+- When a required dependency is missing (i.e., the red notification) and the corresponding Steam Workshop ID is provided, clicking the notification will redirect you to the relevant Workshop subscription page to make subscribing easier.  
+  If only one dependency is missing, it will be opened directly via Steam; if more than one is missing, they will be opened in the in-game overlay browser.  
+  For non-Steam users, the links will be opened directly in an external web browser.
 - It is not recommended to modify the code in `DependencyModLoader.cs` unless you clearly know what you are doing.
 
+![弹窗示例](Pic/依赖检测演示.png)
 ![弹窗示例](Pic/依赖检测演示中.jpg)
 ![弹窗示例](Pic/依赖检测演示日.jpg)
 ![弹窗示例](Pic/依赖检测演示俄.jpg)

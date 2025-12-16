@@ -10,6 +10,9 @@ This is a MOD template that allows prerequisite dependency MODs to no longer req
     [*] When a declared dependency is detected: If the dependency is not enabled, a red popup will appear in the bottom-right corner prompting the user to enable it; if the dependency is enabled but the load order is incorrect, a yellow popup will appear in the bottom-right corner alerting the user that the dependency is enabled but the load order is wrong.
     [*] Your MOD will load only after the dependent MODs have finished loading, preventing issues where the mod cannot be enabled due to incorrect prerequisite order.
     [*] The popup will disappear after being clicked or when the configuration is corrected.
+    [*] When a required dependency is missing (i.e., the red notification) and the corresponding Steam Workshop ID is provided, clicking the notification will redirect you to the relevant Workshop subscription page to make subscribing easier.  
+        If only one dependency is missing, it will be opened directly via Steam; if more than one is missing, they will be opened in the in-game overlay browser.  
+        For non-Steam users, the links will be opened directly in an external web browser.
 [/list]
 
 [h2] 3. Usage [/h2]
