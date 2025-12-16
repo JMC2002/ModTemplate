@@ -10,7 +10,15 @@ using UnityEngine;
 // 项目地址：https://github.com/JMC2002/ModTemplate
 namespace ModTemplate.Core
 {
-    // 建议设为 internal，防止不同 MOD 之间类名冲突
+    // 依赖项结构体
+    public struct ModDependency
+    {
+        public string Name;
+        public ulong SteamId;
+        public ModDependency(string name, ulong steamId = 0) { Name = name; SteamId = steamId; }
+        public static implicit operator ModDependency(string name) => new ModDependency(name);
+    }
+
     // 如果你在多个 MOD 里用这份代码，请确保 namespace 不同，或者使用 internal
     public abstract class DependencyModLoader : Duckov.Modding.ModBehaviour
     {
@@ -20,11 +28,17 @@ namespace ModTemplate.Core
         private HashSet<string> _missingDependencies = default!;
         private bool _isLoaded = false;
 
+        // 存储依赖项的 SteamID 映射
+        private Dictionary<string, ulong> _dependencyIdMap;
+
         // --- UI 显示控制 ---
         private bool _showUI = false;
         private string _uiTitle = "";
         private string _uiMessage = "";
         private Color _uiColor = Color.red;
+
+        // UI 交互：点击时需要打开的 SteamID 列表
+        private List<ulong> _targetSteamIdsForUI = new List<ulong>();
 
         // --- 堆叠控制 ---
         // 这是一个特殊的标识符，所有用这份代码的 MOD 都会认得它
@@ -36,7 +50,7 @@ namespace ModTemplate.Core
         private const float PATIENCE_TIME = 5.0f;
 
         // 必须实现：定义依赖列表
-        protected abstract string[] GetDependencies();
+        protected abstract ModDependency[] GetDependencies();
         // 必须实现：创建业务逻辑组件
         protected abstract MonoBehaviour CreateImplementation(ModManager master, ModInfo info);
 
@@ -53,7 +67,17 @@ namespace ModTemplate.Core
                 return;
             }
 
-            _missingDependencies = new HashSet<string>(required);
+            // 1. 构建映射并初始化缺失列表
+            _dependencyIdMap = new Dictionary<string, ulong>();
+            var requiredNames = new List<string>();
+
+            foreach (var dep in required)
+            {
+                _dependencyIdMap[dep.Name] = dep.SteamId;
+                requiredNames.Add(dep.Name);
+            }
+
+            _missingDependencies = new HashSet<string>(requiredNames);
 
             // 检查前置是否存在于列表
             var installedMods = ModManager.modInfos.Select(m => m.name).ToHashSet();
@@ -241,7 +265,7 @@ namespace ModTemplate.Core
         }
 
         // --- UI 方法 ---
-        private void ShowNotification(string title, string msg, bool isFatal)
+        private void ShowNotification(string title, string msg, bool isFatal, List<ulong> steamIds = null)
         {
             _showUI = true;
             _uiTitle = $"[{info.displayName}] {title}";
@@ -252,6 +276,8 @@ namespace ModTemplate.Core
                                ? new Color(0.9f, 0.2f, 0.2f, 1f)  // 红色
                                : new Color(0.9f, 0.5f, 0.0f, 1f); // 深橙色 (适配白字)
 
+            // 保存需要跳转的 ID
+            _targetSteamIdsForUI = steamIds ?? new List<ulong>();
 
             // 生成一个看不见的 Token，作为我们“正在显示UI”的信标
             if (_myToken == null)
@@ -342,8 +368,18 @@ namespace ModTemplate.Core
             Color originalColor = GUI.backgroundColor;
             GUI.backgroundColor = _uiColor;
 
+            // --- 点击背景 ---
             if (GUI.Button(boxRect, ""))
             {
+                // 如果有 SteamID，点击背景是打开浏览器
+                if (_targetSteamIdsForUI != null && _targetSteamIdsForUI.Count > 0)
+                {
+                    foreach (var id in _targetSteamIdsForUI)
+                    {
+                        // 打开 Steam 创意工坊页面
+                        Application.OpenURL($"https://steamcommunity.com/sharedfiles/filedetails/?id={id}");
+                    }
+                }
                 CloseNotification();
             }
 
@@ -354,8 +390,7 @@ namespace ModTemplate.Core
                 boxRect.height - (16 * scale)
             );
 
-            // --- 样式定义 (关键：清除默认边距) ---
-
+            // --- 样式定义 (清除默认边距) ---
             GUIStyle titleStyle = new(GUI.skin.label)
             {
                 fontSize = Mathf.RoundToInt(18 * scale),
@@ -402,8 +437,19 @@ namespace ModTemplate.Core
             // 自动撑开，把关闭按钮推到底部
             GUILayout.FlexibleSpace();
 
-            // 关闭按钮
-            GUILayout.Label(GetLocalizedText("CLOSE_BTN"), tipStyle);
+            // --- 动态提示文字 ---
+            string tipText;
+            if (_targetSteamIdsForUI != null && _targetSteamIdsForUI.Count > 0)
+            {
+                // 如果有链接，显示“点击订阅”
+                tipText = GetLocalizedText("SUBSCRIBE_BTN");
+            }
+            else
+            {
+                // 否则显示“点击关闭”
+                tipText = GetLocalizedText("CLOSE_BTN");
+            }
+            GUILayout.Label(tipText, tipStyle);
 
             GUILayout.EndArea();
 
@@ -549,6 +595,21 @@ namespace ModTemplate.Core
                     SystemLanguage.Russian => "Загрузка длится дольше обычного или зависимость отключена.\nПодождите или проверьте, включена ли она:",
                     SystemLanguage.Spanish => "La carga tarda más de lo esperado o la dependencia está desactivada.\nEspere o verifique si está activada:",
                     _ => "Loading takes longer than expected, or dependency is disabled.\nPlease wait, or check if enabled:"
+                },
+
+                // Key 10: 订阅按钮文本
+                "SUBSCRIBE_BTN" => lang switch
+                {
+                    SystemLanguage.Chinese or SystemLanguage.ChineseSimplified => "[ 点击订阅 ]",
+                    SystemLanguage.ChineseTraditional => "[ 點擊訂閱 ]",
+                    SystemLanguage.French => "[ S'abonner ]",
+                    SystemLanguage.German => "[ Abonnieren ]",
+                    SystemLanguage.Japanese => "[ 購読する ]",
+                    SystemLanguage.Korean => "[ 구독하기 ]",
+                    SystemLanguage.Portuguese => "[ Inscrever-se ]",
+                    SystemLanguage.Russian => "[ Подписаться ]",
+                    SystemLanguage.Spanish => "[ Suscribirse ]",
+                    _ => "[ Click to Subscribe ]"
                 },
 
                 _ => key // Fallback: return key itself if not found

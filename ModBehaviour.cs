@@ -1,17 +1,17 @@
-﻿using ModTemplate.Core;
-using Duckov.Modding;
+﻿using Duckov.Modding;
+using ModTemplate.Core;
 using UnityEngine;
 
 namespace ModTemplate   // 重命名为自己的命名空间
 {
     public class ModBehaviour : DependencyModLoader
     {
-        protected override string[] GetDependencies()
+        protected override ModDependency[] GetDependencies()
         {
             // 这里是所有的前置依赖项，在加载完前置后才会加载实际的脚本
             return
             [
-                "JmcModLib"
+                new ModDependency("JmcModLib", 3613297900),
             ];
         }
 
