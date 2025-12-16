@@ -312,19 +312,16 @@ namespace ModTemplate.Core
             // 如果没有 ModManager，就默认排第 0
             if (ModManager.Instance == null) return 0;
 
-            // 1. 获取所有挂在 ModManager 下的 MOD
-            // 注意：我们通过遍历 ModManager 的子物体来查找，这是性能最高的做法
+            // 1. 通过遍历 ModManager 的子物体来获取所有挂在 ModManager 下的 MOD
             var siblings = ModManager.Instance.transform;
             var activeTokens = new List<string>();
 
             foreach (Transform child in siblings)
             {
                 // 检查这个 MOD 是否有一个叫 TOKEN_NAME 的子物体
-                // Find 是浅层搜索子物体，正好符合需求
                 if (child.Find(TOKEN_NAME) != null)
                 {
-                    // 我们用 MOD 的名字来作为排序依据
-                    // 只要每个 MOD 的 GameObject 名字是唯一的（Duckov 确实如此），这就是稳定的
+                    // 用 MOD 的名字来作为排序依据
                     activeTokens.Add(child.name);
                 }
             }
@@ -338,7 +335,7 @@ namespace ModTemplate.Core
             return activeTokens.IndexOf(this.name);
         }
 
-        // --- 核心修改 1: 检测 Steam 是否在运行 ---
+        // --- 检测 Steam 是否在运行 ---
         private bool IsSteamRunning()
         {
             try
