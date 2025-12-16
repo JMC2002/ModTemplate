@@ -16,7 +16,7 @@ namespace ModTemplate.Core
         public string Name;
         public ulong SteamId;
         public ModDependency(string name, ulong steamId = 0) { Name = name; SteamId = steamId; }
-        public static implicit operator ModDependency(string name) => new ModDependency(name);
+        public static implicit operator ModDependency(string name) => new(name);
     }
 
     // 如果你在多个 MOD 里用这份代码，请确保 namespace 不同，或者使用 internal
@@ -29,7 +29,7 @@ namespace ModTemplate.Core
         private bool _isLoaded = false;
 
         // 存储依赖项的 SteamID 映射
-        private Dictionary<string, ulong> _dependencyIdMap;
+        private Dictionary<string, ulong> _dependencyIdMap = default!;
 
         // --- UI 显示控制 ---
         private bool _showUI = false;
@@ -38,7 +38,7 @@ namespace ModTemplate.Core
         private Color _uiColor = Color.red;
 
         // UI 交互：点击时需要打开的 SteamID 列表
-        private List<ulong> _targetSteamIdsForUI = new List<ulong>();
+        private List<ulong> _targetSteamIdsForUI = [];
 
         // --- 堆叠控制 ---
         // 这是一个特殊的标识符，所有用这份代码的 MOD 都会认得它
@@ -60,44 +60,57 @@ namespace ModTemplate.Core
 
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
 
-            var required = GetDependencies();
-            if (required == null || required.Length == 0)
+            var requiredDeps = GetDependencies();
+            if (requiredDeps == null || requiredDeps.Length == 0)
             {
                 TryInitImplementation();
                 return;
             }
 
             // 1. 构建映射并初始化缺失列表
-            _dependencyIdMap = new Dictionary<string, ulong>();
+            _dependencyIdMap = [];
             var requiredNames = new List<string>();
 
-            foreach (var dep in required)
+            foreach (var dep in requiredDeps)
             {
                 _dependencyIdMap[dep.Name] = dep.SteamId;
                 requiredNames.Add(dep.Name);
             }
 
-            _missingDependencies = new HashSet<string>(requiredNames);
+            _missingDependencies = [.. requiredNames];
 
-            // 检查前置是否存在于列表
+            // 2. 物理检查：文件夹是否存在？
             var installedMods = ModManager.modInfos.Select(m => m.name).ToHashSet();
-            List<string> notInstalledList = []; // 完全没安装
-            foreach (var req in required)
+            List<string> notInstalledList = [];
+            List<ulong> missingIds = []; // 收集缺失的 ID
+
+            foreach (var req in requiredNames)
             {
-                if (!installedMods.Contains(req)) notInstalledList.Add(req);
+                if (!installedMods.Contains(req))
+                {
+                    notInstalledList.Add(req);
+                    // 如果有 ID，加到列表里
+                    if (_dependencyIdMap.TryGetValue(req, out ulong id) && id > 0)
+                    {
+                        missingIds.Add(id);
+                    }
+                }
             }
 
             if (notInstalledList.Count > 0)
             {
+                // 严重错误：未安装
+                // 传入 missingIds，让 UI 知道点击要跳转
                 ShowNotification(
                     GetLocalizedText("MISSING_TITLE"),
                     $"{GetLocalizedText("MISSING_MSG")}\n{string.Join(", ", notInstalledList)}",
-                    true
+                    true,
+                    missingIds
                 );
                 return;
             }
 
-            // 内存检查是否已经在内存里了
+            // 3. 内存检查
             CheckByAppDomain();
 
             if (_missingDependencies.Count == 0)
@@ -106,64 +119,54 @@ namespace ModTemplate.Core
                 return;
             }
 
-            // 还没加载。检查原生配置是否“启用”了？
-            // 这里我们只做记录，不直接报错，防止第三方 Loader 不写原生配置
+            // 4. 原生配置检查 (仅用于日志和判断)
             List<string> nativelyDisabled = GetNativelyDisabledMods(_missingDependencies);
 
             if (nativelyDisabled.Count > 0)
             {
-                // 原生配置说它没开。可能是真的没开，也可能是第三方 Loader 开的。
-                // 我们不弹窗，而是打印一条日志，然后开始“乐观等待”
-                Debug.LogWarning($"[{info.name}] 原生配置显示依赖未启用（可能是第三方Loader环境），进入超时检查模式: {string.Join(", ", nativelyDisabled)}");
+                Debug.LogWarning($"[{info.name}] 原生配置显示依赖未启用，进入超时检查模式: {string.Join(", ", nativelyDisabled)}");
             }
             else
             {
-                // 原生配置说开了，那只是加载顺序问题，安心等
                 Debug.Log($"[{info.name}] 正在等待依赖加载: {string.Join(", ", _missingDependencies)}");
             }
 
-            // 如果内存里没有，启动“耐心等待”协程
-            Debug.Log($"[{info.name}] 依赖项尚未加载，开始无限等待: {string.Join(", ", _missingDependencies)}");
-
             ModManager.OnModActivated += OnModActivatedHandler;
-            StartCoroutine(WaitForDependencyRoutine(nativelyDisabled));
+            StartCoroutine(WaitForDependencyRoutine());
         }
 
         // --- 等待协程 ---
-        private IEnumerator WaitForDependencyRoutine(List<string> potentiallyDisabled)
+        private IEnumerator WaitForDependencyRoutine()
         {
             float timer = 0f;
-            bool warningShown = false; // 标记是否已经显示了警告
+            bool warningShown = false;
 
             while (!_isLoaded)
             {
-                // 每帧扫描内存 (最诚实的检查)
                 CheckByAppDomain();
 
-                // 检查到依赖齐了
                 if (_missingDependencies.Count == 0)
                 {
+                    if (warningShown) CloseNotification();
                     TryInitImplementation();
-                    yield break; // 退出协程
+                    yield break;
                 }
 
                 timer += Time.deltaTime;
 
-                // 检查是否耗时太久 (超过耐心时间)
                 if (timer > PATIENCE_TIME && !warningShown)
                 {
-                    // 超过 5 秒还没加载完，弹个窗告诉玩家我们在等
-                    // 注意：这里我们不停止等待，只是给个视觉反馈
                     warningShown = true;
-
+                    // 等待超时：这是“未启用”或“太慢”，不需要跳转 Steam
                     ShowNotification(
                         GetLocalizedText("WAITING_TITLE"),
                         $"{GetLocalizedText("WAITING_MSG")}\n{string.Join(", ", _missingDependencies)}",
-                        false // 黄色警告 (不是红色错误)
+                        false,
+                        null // 不需要跳转
                     );
                 }
 
-                yield return null; // 等待下一帧
+                yield return null;
             }
         }
 
@@ -175,7 +178,7 @@ namespace ModTemplate.Core
                                 .ToHashSet();
 
             // 如果依赖项出现在内存里，直接移除，视为已解决
-            _missingDependencies.RemoveWhere(dep => loadedAsms.Contains(dep));
+            _missingDependencies.RemoveWhere(loadedAsms.Contains);
         }
 
         private List<string> GetNativelyDisabledMods(HashSet<string> targets)
@@ -265,7 +268,7 @@ namespace ModTemplate.Core
         }
 
         // --- UI 方法 ---
-        private void ShowNotification(string title, string msg, bool isFatal, List<ulong> steamIds = null)
+        private void ShowNotification(string title, string msg, bool isFatal, List<ulong>? steamIds = null)
         {
             _showUI = true;
             _uiTitle = $"[{info.displayName}] {title}";
@@ -277,7 +280,7 @@ namespace ModTemplate.Core
                                : new Color(0.9f, 0.5f, 0.0f, 1f); // 深橙色 (适配白字)
 
             // 保存需要跳转的 ID
-            _targetSteamIdsForUI = steamIds ?? new List<ulong>();
+            _targetSteamIdsForUI = steamIds ?? [];
 
             // 生成一个看不见的 Token，作为我们“正在显示UI”的信标
             if (_myToken == null)
@@ -335,6 +338,113 @@ namespace ModTemplate.Core
             return activeTokens.IndexOf(this.name);
         }
 
+        // --- 核心修改 1: 检测 Steam 是否在运行 ---
+        private bool IsSteamRunning()
+        {
+            try
+            {
+                // 反射检查 SteamAPI.IsSteamRunning()
+                // 这样不需要引用 Steamworks.NET.dll 也能编译
+                Type steamApiType = Type.GetType("Steamworks.SteamAPI, com.rlabrecque.steamworks.net") ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .SelectMany(a => a.GetTypes())
+                        .FirstOrDefault(t => t.FullName == "Steamworks.SteamAPI");
+                if (steamApiType != null)
+                {
+                    MethodInfo isRunningMethod = steamApiType.GetMethod("IsSteamRunning", BindingFlags.Public | BindingFlags.Static);
+                    if (isRunningMethod != null)
+                    {
+                        return (bool)isRunningMethod.Invoke(null, null);
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略异常，默认认为没运行
+            }
+            return false;
+        }
+
+        // 通过内部浏览器根据单个 SteamID 打开创意工坊页面
+        private void OpenWorkshopPage(ulong id)
+        {
+            string url = $"https://steamcommunity.com/sharedfiles/filedetails/?id={id}";
+            bool success = false;
+
+            try
+            {
+                // 查找 SteamFriends 类型
+                Type steamFriendsType = Type.GetType("Steamworks.SteamFriends, com.rlabrecque.steamworks.net") ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .SelectMany(a => a.GetTypes())
+                        .FirstOrDefault(t => t.FullName == "Steamworks.SteamFriends");
+                if (steamFriendsType != null)
+                {
+                    // 获取方法信息
+                    MethodInfo activateOverlayMethod = steamFriendsType.GetMethod("ActivateGameOverlayToWebPage", BindingFlags.Public | BindingFlags.Static);
+
+                    if (activateOverlayMethod != null)
+                    {
+                        // Steamworks.NET 不同版本该方法的参数数量不同（有的1个，有的2个）
+                        var parameters = activateOverlayMethod.GetParameters();
+
+                        if (parameters.Length == 1)
+                        {
+                            // 旧版本：只接受 URL
+                            activateOverlayMethod.Invoke(null, [url]);
+                        }
+                        else if (parameters.Length == 2)
+                        {
+                            // 新版本：接受 URL + Mode
+                            // 第二个参数是 Enum，传 int 0 对应 k_EActivateGameOverlayToWebPageMode_Default
+                            activateOverlayMethod.Invoke(null, [url, 0]);
+                        }
+
+                        success = true;
+                        Debug.Log($"[{info.name}] 已通过 Steam Overlay 打开: {id}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[{info.name}] 无法呼出 Steam Overlay，回退到系统浏览器。原因: {ex.Message}");
+            }
+
+            // 回退机制
+            if (!success)
+            {
+                Debug.Log($"[{info.name}] 通过系统默认浏览器打开订阅页面: {id}");
+                Application.OpenURL(url);
+            }
+        }
+
+        // --- 批量打开 ---
+        private void OpenWorkshopPage(List<ulong> ids)
+        {
+            if (ids == null || ids.Count == 0) return;
+
+            // 检查是否是 Steam 环境
+            bool isSteam = IsSteamRunning();
+
+            if (!isSteam)
+            {
+                // 非 Steam 玩家：全部用 HTTP 打开外部浏览器
+                foreach (var id in ids)
+                {
+                    Application.OpenURL($"https://steamcommunity.com/sharedfiles/filedetails/?id={id}");
+                }
+            }
+            else if (ids.Count == 1)
+            {
+                // 当只缺一个前置，直接用 Steam 打开
+                Application.OpenURL($"steam://url/CommunityFilePage/{ids[0]}");
+            }
+            else // 否则在内部浏览器中打开，因为 Steam 协议只能打开一个
+            {
+                foreach (var id in ids)
+                {
+                    OpenWorkshopPage(id);
+                }
+            }
+        }
 
         private void OnGUI()
         {
@@ -374,12 +484,9 @@ namespace ModTemplate.Core
                 // 如果有 SteamID，点击背景是打开浏览器
                 if (_targetSteamIdsForUI != null && _targetSteamIdsForUI.Count > 0)
                 {
-                    foreach (var id in _targetSteamIdsForUI)
-                    {
-                        // 打开 Steam 创意工坊页面
-                        Application.OpenURL($"https://steamcommunity.com/sharedfiles/filedetails/?id={id}");
-                    }
+                    OpenWorkshopPage(_targetSteamIdsForUI);
                 }
+
                 CloseNotification();
             }
 
