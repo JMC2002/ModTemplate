@@ -1,6 +1,7 @@
 ﻿using Duckov.Modding;
 using SodaCraft.Localizations;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -14,7 +15,7 @@ namespace ModTemplate.Core
     public abstract class DependencyModLoader : Duckov.Modding.ModBehaviour
     {
         // 当前DependencyModLoader代码版本号
-        public const string LOADER_VERSION = "1.0.0";
+        public const string LOADER_VERSION = "1.0.1";
 
         private HashSet<string> _missingDependencies = default!;
         private bool _isLoaded = false;
@@ -29,6 +30,10 @@ namespace ModTemplate.Core
         // 这是一个特殊的标识符，所有用这份代码的 MOD 都会认得它
         private const string TOKEN_NAME = "__DEP_UI_TOKEN__";
         private GameObject _myToken = default!; // 我生成的那个标记物体
+
+        // 设置一个“耐心时间”，超过这个时间还没加载完，才显示提示
+        // 建议设为 5-8 秒，足以覆盖大多数慢速加载的情况
+        private const float PATIENCE_TIME = 5.0f;
 
         // 必须实现：定义依赖列表
         protected abstract string[] GetDependencies();
@@ -48,61 +53,16 @@ namespace ModTemplate.Core
                 return;
             }
 
-            _missingDependencies = [.. required];
+            _missingDependencies = new HashSet<string>(required);
 
-            // 准备反射：获取官方判断是否激活的方法
-            var checkMethod = typeof(ModManager).GetMethod("ShouldActivateMod", BindingFlags.Instance | BindingFlags.NonPublic);
-
-            if (checkMethod == null)
-            {
-                ShowNotification(
-                    GetLocalizedText("API_ERR_TITLE"),
-                    GetLocalizedText("API_ERR_MSG"),
-                    true
-                );
-                return;
-            }
-
+            // 检查前置是否存在于列表
+            var installedMods = ModManager.modInfos.Select(m => m.name).ToHashSet();
             List<string> notInstalledList = []; // 完全没安装
-            List<string> disabledList = [];     // 安装了但没勾选
-
-            // 2. 遍历每一个依赖项进行检查
-            foreach (var reqName in required)
+            foreach (var req in required)
             {
-                // 查找所有同名 MOD (兼容本地和工坊共存的情况)
-                var matchingMods = ModManager.modInfos.Where(m => m.name == reqName).ToList();
-
-                if (matchingMods.Count == 0)
-                {
-                    notInstalledList.Add(reqName);
-                    continue;
-                }
-
-                // 检查是否启用
-                bool isAnyEnabled = false;
-                foreach (var modInfo in matchingMods)
-                {
-                    try
-                    {
-                        bool isEnabled = (bool)checkMethod.Invoke(ModManager.Instance, new object[] { modInfo });
-                        if (isEnabled)
-                        {
-                            isAnyEnabled = true;
-                            break;
-                        }
-                    }
-                    catch { /* 忽略反射异常 */ }
-                }
-
-                if (!isAnyEnabled)
-                {
-                    disabledList.Add(reqName);
-                }
+                if (!installedMods.Contains(req)) notInstalledList.Add(req);
             }
 
-            // 3. 处理结果
-
-            // 情况 A：严重错误 - 未安装
             if (notInstalledList.Count > 0)
             {
                 ShowNotification(
@@ -110,38 +70,115 @@ namespace ModTemplate.Core
                     $"{GetLocalizedText("MISSING_MSG")}\n{string.Join(", ", notInstalledList)}",
                     true
                 );
-                return; // 终止加载
+                return;
             }
 
-            // 情况 B：警告 - 未启用
-            if (disabledList.Count > 0)
-            {
-                // 弹出一个黄色警告，告诉玩家去勾选，但不终止程序（因为玩家可能马上就去勾选了）
-                ShowNotification(
-                    GetLocalizedText("DISABLED_TITLE"),
-                    $"{GetLocalizedText("DISABLED_MSG")}\n{string.Join(", ", disabledList)}",
-                    false
-                );
-                Debug.LogWarning($"[{info.name}] 等待前置库启用: {string.Join(", ", disabledList)}");
-            }
-
-            // 情况 C：检查是否已经在内存里 (应对加载顺序)
-            CheckAlreadyLoaded();
+            // 内存检查是否已经在内存里了
+            CheckByAppDomain();
 
             if (_missingDependencies.Count == 0)
             {
                 TryInitImplementation();
+                return;
+            }
+
+            // 还没加载。检查原生配置是否“启用”了？
+            // 这里我们只做记录，不直接报错，防止第三方 Loader 不写原生配置
+            List<string> nativelyDisabled = GetNativelyDisabledMods(_missingDependencies);
+
+            if (nativelyDisabled.Count > 0)
+            {
+                // 原生配置说它没开。可能是真的没开，也可能是第三方 Loader 开的。
+                // 我们不弹窗，而是打印一条日志，然后开始“乐观等待”
+                Debug.LogWarning($"[{info.name}] 原生配置显示依赖未启用（可能是第三方Loader环境），进入超时检查模式: {string.Join(", ", nativelyDisabled)}");
             }
             else
             {
-                // 还有依赖没加载（可能是未启用，也可能是排在后面）
-                // 订阅事件等待
-                if (disabledList.Count == 0)
-                {
-                    Debug.Log($"[{info.name}] 正在等待加载顺序: {string.Join(", ", _missingDependencies)}");
-                }
-                ModManager.OnModActivated += OnModActivatedHandler;
+                // 原生配置说开了，那只是加载顺序问题，安心等
+                Debug.Log($"[{info.name}] 正在等待依赖加载: {string.Join(", ", _missingDependencies)}");
             }
+
+            // 如果内存里没有，启动“耐心等待”协程
+            Debug.Log($"[{info.name}] 依赖项尚未加载，开始无限等待: {string.Join(", ", _missingDependencies)}");
+
+            ModManager.OnModActivated += OnModActivatedHandler;
+            StartCoroutine(WaitForDependencyRoutine(nativelyDisabled));
+        }
+
+        // --- 等待协程 ---
+        private IEnumerator WaitForDependencyRoutine(List<string> potentiallyDisabled)
+        {
+            float timer = 0f;
+            bool warningShown = false; // 标记是否已经显示了警告
+
+            while (!_isLoaded)
+            {
+                // 每帧扫描内存 (最诚实的检查)
+                CheckByAppDomain();
+
+                // 检查到依赖齐了
+                if (_missingDependencies.Count == 0)
+                {
+                    TryInitImplementation();
+                    yield break; // 退出协程
+                }
+
+                timer += Time.deltaTime;
+
+                // 检查是否耗时太久 (超过耐心时间)
+                if (timer > PATIENCE_TIME && !warningShown)
+                {
+                    // 超过 5 秒还没加载完，弹个窗告诉玩家我们在等
+                    // 注意：这里我们不停止等待，只是给个视觉反馈
+                    warningShown = true;
+
+                    ShowNotification(
+                        GetLocalizedText("WAITING_TITLE"),
+                        $"{GetLocalizedText("WAITING_MSG")}\n{string.Join(", ", _missingDependencies)}",
+                        false // 黄色警告 (不是红色错误)
+                    );
+                }
+
+                yield return null; // 等待下一帧
+            }
+        }
+
+        private void CheckByAppDomain()
+        {
+            // 获取当前内存里所有的程序集名字
+            var loadedAsms = AppDomain.CurrentDomain.GetAssemblies()
+                                .Select(a => a.GetName().Name)
+                                .ToHashSet();
+
+            // 如果依赖项出现在内存里，直接移除，视为已解决
+            _missingDependencies.RemoveWhere(dep => loadedAsms.Contains(dep));
+        }
+
+        private List<string> GetNativelyDisabledMods(HashSet<string> targets)
+        {
+            var list = new List<string>();
+            var checkMethod = typeof(ModManager).GetMethod("ShouldActivateMod", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (checkMethod == null) return list;
+
+            foreach (var req in targets)
+            {
+                // 本地和创意工坊可能有多个同名 ModInfo，任一启用即可
+                var matchingMods = ModManager.modInfos.Where(m => m.name == req).ToList();
+                if (matchingMods.Count == 0) continue;
+
+                bool isAnyEnabled = false;
+                foreach (var modInfo in matchingMods)
+                {
+                    try
+                    {
+                        if ((bool)checkMethod.Invoke(ModManager.Instance, new object[] { modInfo }))
+                        { isAnyEnabled = true; break; }
+                    }
+                    catch { }
+                }
+                if (!isAnyEnabled) list.Add(req);
+            }
+            return list;
         }
 
         private void CheckAlreadyLoaded()
@@ -163,9 +200,6 @@ namespace ModTemplate.Core
 
                 if (_missingDependencies.Count == 0)
                 {
-                    // 如果因为之前的“未启用”弹出了警告框，现在自动关闭它，因为玩家已经启用了
-                    _showUI = false;
-
                     ModManager.OnModActivated -= OnModActivatedHandler;
                     TryInitImplementation();
                 }
@@ -176,8 +210,13 @@ namespace ModTemplate.Core
         {
             if (_isLoaded) return; // 如果有严重错误UI，也可以选择继续加载或者不加载，通常如果没报错就可以加载
 
+            // 成功加载后关闭可能存在的通知UI
             // 即使有黄色警告UI，只要依赖齐了，也允许加载
-            // (CreateImplementation 内部会 AddComponent，此时 JmcModLib 肯定在内存里)
+            CloseNotification();
+
+
+            Debug.Log($"[{info.name}] 依赖就绪，启动业务逻辑。");
+            // (CreateImplementation 内部会 AddComponent，此时前置库肯定在内存里)
             CreateImplementation(this.master, this.info);
             _isLoaded = true;
         }
@@ -480,6 +519,36 @@ namespace ModTemplate.Core
                     SystemLanguage.Russian => "[ Закрыть ]",
                     SystemLanguage.Spanish => "[ Cerrar ]",
                     _ => "[ Click to Close ]"
+                },
+
+                // Key 8: 等待提示标题
+                "WAITING_TITLE" => lang switch
+                {
+                    SystemLanguage.Chinese or SystemLanguage.ChineseSimplified => "正在等待前置...",
+                    SystemLanguage.ChineseTraditional => "正在等待前置...",
+                    SystemLanguage.French => "En attente de dépendance...",
+                    SystemLanguage.German => "Warten auf Abhängigkeit...",
+                    SystemLanguage.Japanese => "前提MOD待機中...",
+                    SystemLanguage.Korean => "선행 MOD 대기 중...",
+                    SystemLanguage.Portuguese => "Aguardando Dependência...",
+                    SystemLanguage.Russian => "Ожидание зависимости...",
+                    SystemLanguage.Spanish => "Esperando Dependencia...",
+                    _ => "Waiting for Dependency..."
+                },
+
+                // Key 9: 等待提示内容
+                "WAITING_MSG" => lang switch
+                {
+                    SystemLanguage.Chinese or SystemLanguage.ChineseSimplified => "加载时间较长，或前置库未启用。\n请耐心等待，或检查 MOD 列表是否勾选:",
+                    SystemLanguage.ChineseTraditional => "加載時間較長，或前置庫未啟用。\n請耐心等待，或檢查 MOD 列表是否勾選:",
+                    SystemLanguage.French => "Le chargement est plus long que prévu ou la dépendance est désactivée.\nVeuillez patienter ou vérifier si elle est activée :",
+                    SystemLanguage.German => "Laden dauert länger als erwartet oder Abhängigkeit ist deaktiviert.\nBitte warten oder prüfen, ob aktiviert:",
+                    SystemLanguage.Japanese => "読み込みに時間がかかっているか、無効化されています。\n待機するか、有効化されているか確認してください:",
+                    SystemLanguage.Korean => "로딩이 지연되거나 선행 MOD가 비활성화되었습니다.\n잠시 기다리거나 활성화 여부를 확인하십시오:",
+                    SystemLanguage.Portuguese => "O carregamento demora mais que o esperado ou a dependência está desativada.\nAguarde ou verifique se está ativada:",
+                    SystemLanguage.Russian => "Загрузка длится дольше обычного или зависимость отключена.\nПодождите или проверьте, включена ли она:",
+                    SystemLanguage.Spanish => "La carga tarda más de lo esperado o la dependencia está desactivada.\nEspere o verifique si está activada:",
+                    _ => "Loading takes longer than expected, or dependency is disabled.\nPlease wait, or check if enabled:"
                 },
 
                 _ => key // Fallback: return key itself if not found
