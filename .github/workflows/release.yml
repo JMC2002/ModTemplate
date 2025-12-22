@@ -1,0 +1,164 @@
+﻿name: Release Mod
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # === 检出代码 (必须修改 fetch-depth: 0) ===
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # 关键点：设置为 0 表示下载所有历史记录和标签
+          # 否则 git 无法知道上一个 tag 是什么
+          fetch-depth: 0 
+
+      # === 自动从 C# 代码提取配置 ===
+      - name: Auto-detect Configuration from C#
+        id: auto_config
+        run: |
+          CS_FILE=$(find . -name "VersionInfo.cs" -print -quit)
+          if [ -z "$CS_FILE" ]; then echo "VersionInfo.cs not found"; exit 1; fi
+
+          RAW_NAME=$(grep 'const string Name' "$CS_FILE" | sed -E 's/.*Name\s*=\s*"(.*)";.*/\1/')
+          MOD_NAME=$(echo "$RAW_NAME" | xargs)
+          
+          RAW_VERSION=$(grep 'const string Version' "$CS_FILE" | sed -E 's/.*Version\s*=\s*"(.*)";.*/\1/')
+          MOD_VERSION=$(echo "$RAW_VERSION" | xargs)
+
+          # 自动寻找文件夹
+          TARGET_DIR=$(find . -maxdepth 2 -type d -name "$MOD_NAME" -not -path '*/.*' -print -quit)
+
+          echo "MOD_PATH=$TARGET_DIR" >> $GITHUB_ENV
+          echo "VERSION=$MOD_VERSION" >> $GITHUB_ENV
+          echo "ZIP_FILENAME=${MOD_NAME}_${MOD_VERSION}.zip" >> $GITHUB_ENV
+
+      # === 计算上一个 Tag (新增步骤) ===
+      - name: Find Previous Tag
+        id: prev_tag
+        run: |
+          CURRENT_TAG=${{ github.ref_name }}
+          
+          # 列出所有 v 开头的 tag
+          # 按照版本号倒序排列 (这样 v1.10 会排在 v1.2 前面，比单纯按时间排序更准)
+          # grep 找到当前 tag 及其后一行
+          # tail 取最后一行，即为前一个 tag
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
+          
+          # 如果当前就是第一个版本，grep 结果只有一行，PREV_TAG 会等于 CURRENT_TAG
+          if [ "$PREV_TAG" != "$CURRENT_TAG" ] && [ ! -z "$PREV_TAG" ]; then
+            echo "Found Previous Tag: $PREV_TAG"
+            echo "PREV_TAG=$PREV_TAG" >> $GITHUB_ENV
+          else
+            echo "No previous tag found (Initial Release)."
+          fi
+
+      # === 提取 CHANGELOG, 标题 并拼接 Full Changelog 链接 ===
+      - name: Extract Changelog and Title
+        id: changelog_reader
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const version = process.env.VERSION;
+            const prevTag = process.env.PREV_TAG;
+            const currentTag = context.ref.replace('refs/tags/', '');
+            
+            // 构造仓库链接
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}`;
+            
+            const changelogPath = './CHANGELOG.md';
+            let releaseTitle = `[${version}]`; 
+            let notes = '';
+
+            if (fs.existsSync(changelogPath)) {
+              const content = fs.readFileSync(changelogPath, 'utf8');
+              const lines = content.split('\n');
+              let extract = [];
+              let isRecording = false;
+
+              // 匹配 ## [1.8.3] ...
+              const escapedVersion = version.replace(/\./g, '\\.');
+              const targetHeaderRegex = new RegExp(`^##\\s+\\[${escapedVersion}\\]`);
+              const anyHeaderRegex = /^##\s+\[/;
+
+              for (const line of lines) {
+                if (isRecording && anyHeaderRegex.test(line)) break;
+                if (isRecording) extract.push(line);
+                if (!isRecording && targetHeaderRegex.test(line)) {
+                  isRecording = true;
+                  releaseTitle = line.replace(/^##\s+/, '').trim();
+                }
+              }
+              notes = extract.join('\n').trim();
+            }
+
+            if (!notes) {
+                notes = `Release v${version}`;
+                if (releaseTitle === `[${version}]`) releaseTitle = `v${version}`;
+            }
+
+            // === 追加 Full Changelog 链接 ===
+            if (prevTag) {
+                // 生成格式: Full Changelog: v1.8.2...v1.8.3
+                // GitHub 会自动将这个 URL 渲染为可点击的短链接
+                const compareUrl = `${repoUrl}/compare/${prevTag}...${currentTag}`;
+                notes += `\n\n**Full Changelog**: ${compareUrl}`;
+            }
+
+            core.setOutput('title', releaseTitle);
+            core.setOutput('notes', notes);
+        env:
+          VERSION: ${{ env.VERSION }}
+          PREV_TAG: ${{ env.PREV_TAG }}
+
+      - name: Prepare and Zip
+        run: |
+          STAGING_DIR="temp_staging"
+          mkdir -p "$STAGING_DIR"
+          
+          FOLDER_NAME=$(basename "${{ env.MOD_PATH }}")
+          
+          echo "🔨 Creating staging area..."
+
+          # 把 MOD 文件夹复制到临时目录中
+          cp -r "${{ env.MOD_PATH }}" "$STAGING_DIR/"
+
+          # 把根目录的文档复制进 临时目录下的 MOD 文件夹
+          DOC_FILES=("README.md" "README_en.md" "CHANGELOG.md" "LICENSE.txt" "LICENSE")
+          
+          echo "📄 Injecting documents into package..."
+          for file in "${DOC_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              cp "$file" "$STAGING_DIR/$FOLDER_NAME/"
+              echo "   ✅ Included: $file"
+            fi
+          done
+
+          # 进入临时目录进行压缩
+          cd "$STAGING_DIR"
+          
+          echo "📦 Zipping..."
+          zip -r "${{ github.workspace }}/${{ env.ZIP_FILENAME }}" "$FOLDER_NAME" \
+            -x "*.git*" "*.vscode*" "*/bin/*" "*/obj/*" "*/Thumbs.db" "*.DS_Store"
+
+          echo "🎉 Zip created: ${{ env.ZIP_FILENAME }}"
+
+      # === 发布 ===
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.ZIP_FILENAME }}
+          name: ${{ steps.changelog_reader.outputs.title }}
+          body: ${{ steps.changelog_reader.outputs.notes }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
